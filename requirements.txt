@@ -3,6 +3,5 @@ SQLAlchemy
 qrcode
 Pillow
 pandas
-pyzbar
-pyzbar==0.1.10
-pillow==10.3.0
+matplotlib
+pyzbar==0.1.9
