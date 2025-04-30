@@ -105,13 +105,14 @@ def generar_qr(info: str) -> io.BytesIO:
     return buf
 
 # ---------- PÁGINAS ----------
+
 def pagina_inicio():
     st.title("🏠 Panel de Control - Granja Premium")
     session = get_session()
     total_animales = session.query(Animal).count()
     ultimo_registro = session.query(Animal).order_by(Animal.fecha_registro.desc()).first()
     pesos = session.query(Peso).all()
-    peso_promedio = sum([p.peso for p in pesos]) / len(pesos) if pesos else 0
+    peso_promedio = sum(p.peso for p in pesos) / len(pesos) if pesos else 0
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Animales", total_animales)
@@ -159,7 +160,6 @@ def registro_animales():
         estado = st.selectbox("Estado Actual", ["Vivo", "Vendido", "Sacrificado"])
         if st.form_submit_button("Registrar Animal"):
             session = get_session()
-            # Validaciones
             if not id_animal.startswith(prefix):
                 st.error(f"El ID debe iniciar con '{prefix}' para {tipo}.")
                 st.stop()
@@ -180,16 +180,11 @@ def registro_animales():
                 st.success("Animal registrado correctamente.")
                 info = f"ID:{nuevo.id}|Tipo:{nuevo.tipo}|Nombre:{nuevo.nombre}|Nacimiento:{nuevo.fecha_nacimiento.strftime('%Y-%m-%d')}"
                 buf = generar_qr(info)
-                col1, col2 = st.columns([1, 2])
-                with col1:
+                c1, c2 = st.columns([1,2])
+                with c1:
                     st.image(Image.open(buf), caption=f"QR para {nombre}")
-                with col2:
-                    st.download_button(
-                        label="Descargar QR",
-                        data=buf,
-                        file_name=f"qr_{nuevo.id}.png",
-                        mime="image/png"
-                    )
+                with c2:
+                    st.download_button("Descargar QR", buf, file_name=f"qr_{nuevo.id}.png", mime="image/png")
             except Exception as e:
                 session.rollback()
                 st.error(f"Error al registrar animal: {e}")
@@ -208,46 +203,9 @@ def registrar_peso():
         if opcion == "Escanear QR":
             qr_file = st.camera_input("Escanea el código QR del animal")
             if qr_file:
+                img = Image.open(qr_file)
                 try:
-                    img = Image.open(qr_file)
                     decoded = qr_decode(img)
                     if decoded:
                         data = decoded[0].data.decode()
-                        id_sel = data.split("|")[0].replace("ID:", "")
-                        st.success(f"ID detectado: {id_sel}")
-                except:
-                    st.error("Error al leer el código QR")
-        if not id_sel:
-            id_sel = st.selectbox("Seleccionar animal", [a.id for a in animales])
-        peso_n = st.number_input("Peso (kg)", min_value=0.0, step=0.1)
-        fecha_peso = st.date_input("Fecha de medición", value=date.today())
-        if st.form_submit_button("Guardar Peso"):
-            ahora = datetime.combine(fecha_peso, datetime.now().time())
-            medida = Peso(id=id_sel, fecha=ahora, peso=peso_n)
-            try:
-                session.add(medida)
-                session.commit()
-                st.success(f"Peso {peso_n} kg registrado para {id_sel}")
-                historial = session.query(Peso).filter(Peso.id==id_sel).order_by(Peso.fecha.desc()).limit(5).all()
-                if historial:
-                    df = pd.DataFrame([(h.fecha.strftime("%Y-%m-%d"), h.peso) for h in historial], columns=["Fecha", "Peso"])
-                    st.line_chart(df.set_index("Fecha"))
-            except Exception as e:
-                session.rollback()
-                st.error(f"Error: {e}")
-
-
-def analisis_peso():
-    st.title("📊 Análisis de Pesos")
-    session = get_session()
-    animales = session.query(Animal).all()
-    if not animales:
-        st.warning("No hay animales registrados.")
-        return
-    animal_id = st.selectbox("Seleccionar animal", [a.id for a in animales])
-    pesos = session.query(Peso).filter(Peso.id==animal_id).order_by(Peso.fecha).all()
-    if not pesos:
-        st.info("No hay registros de peso para este animal.")
-        return
-    df = pd.DataFrame([(p.fecha.strftime("%Y-%m-
-... (truncated for brevity) ...
+                        id_sel = data.split("|")[0]
