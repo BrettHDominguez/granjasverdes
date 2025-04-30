@@ -65,6 +65,7 @@ Base.metadata.create_all(bind=engine)
 def get_session():
     return SessionLocal()
 
+
 def calcular_plan(tipo, dias, peso=None):
     planes = {
         "Cerdo": {
@@ -87,11 +88,11 @@ def calcular_plan(tipo, dias, peso=None):
             (113, float('inf')): "Engorde: 14–16% proteína. Control corporal"
         }
     }
-    
     for (min_d, max_d), plan in planes[tipo].items():
         if min_d <= dias <= max_d:
             return plan
     return "Plan no disponible"
+
 
 def generar_qr(info: str) -> io.BytesIO:
     qr = qrcode.QRCode(version=1, box_size=6, border=4)
@@ -106,13 +107,11 @@ def generar_qr(info: str) -> io.BytesIO:
 # ---------- PÁGINAS ----------
 def pagina_inicio():
     st.title("🏠 Panel de Control - Granja Premium")
-    
     session = get_session()
     total_animales = session.query(Animal).count()
     ultimo_registro = session.query(Animal).order_by(Animal.fecha_registro.desc()).first()
     pesos = session.query(Peso).all()
-    peso_promedio = sum([p.peso for p in pesos])/len(pesos) if pesos else 0
-    
+    peso_promedio = sum([p.peso for p in pesos]) / len(pesos) if pesos else 0
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Animales", total_animales)
@@ -120,13 +119,10 @@ def pagina_inicio():
         st.metric("Último Registro", ultimo_registro.id if ultimo_registro else 'N/A')
     with col3:
         st.metric("Peso Promedio", f"{peso_promedio:.1f} kg")
-    
     st.divider()
-    
     st.subheader("Resumen por Tipo")
     tipos = session.query(Animal.tipo, func.count(Animal.id)).group_by(Animal.tipo).all()
     df_tipos = pd.DataFrame(tipos, columns=["Tipo", "Cantidad"])
-    
     col1, col2 = st.columns([1, 2])
     with col1:
         st.dataframe(df_tipos, height=200)
@@ -135,75 +131,55 @@ def pagina_inicio():
         ax.bar(df_tipos["Tipo"], df_tipos["Cantidad"], color='#4CAF50')
         st.pyplot(fig)
 
+
 def registro_animales():
     st.title("📝 Registro de Nuevo Animal")
-    
     with st.expander("Instrucciones para el registro", expanded=True):
-        st.write("""
-        - **ID Único**: Debe comenzar con:
-          - **C** para Cerdos (ej: C25H)
-          - **P** para Pollos (ej: P10M)
-          - **B** para Borregos (ej: B05F)
-        - Complete todos los campos obligatorios
-        - Revise los datos antes de enviar
-        """)
-    
+        st.write(
+            "- **ID Único**: Debe comenzar con:\n"
+            "  - **C** para Cerdos (ej: C25H)\n"
+            "  - **P** para Pollos (ej: P10M)\n"
+            "  - **B** para Borregos (ej: B05F)\n"
+            "- Complete todos los campos obligatorios\n"
+            "- Revise los datos antes de enviar"
+        )
     with st.form("form_registro", clear_on_submit=True):
-        st.subheader("Datos Básicos")
         col1, col2 = st.columns(2)
         with col1:
             tipo = st.selectbox("Tipo de Animal", ["Cerdo", "Pollo", "Borrego"])
             nombre = st.text_input("Nombre del Animal")
             fecha_nac = st.date_input("Fecha de Nacimiento")
         with col2:
-            id_animal = st.text_input(f"ID Único (Debe comenzar con {'C' if tipo == 'Cerdo' else 'P' if tipo == 'Pollo' else 'B'})")
+            prefix = {'Cerdo':'C','Pollo':'P','Borrego':'B'}[tipo]
+            id_animal = st.text_input(f"ID Único (Debe comenzar con {prefix})")
             peso_ini = st.number_input("Peso Inicial (kg)", min_value=0.0, step=0.1)
-        
-        st.subheader("Parentesco")
-        col1, col2 = st.columns(2)
-        with col1:
-            padre = st.text_input("ID Padre (opcional)")
-        with col2:
-            madre = st.text_input("ID Madre (opcional)")
-        
-        st.subheader("Otros Datos")
+        padre = st.text_input("ID Padre (opcional)")
+        madre = st.text_input("ID Madre (opcional)")
         origen = st.radio("Origen", ["Criado en Granja", "Comprado"], horizontal=True)
         estado = st.selectbox("Estado Actual", ["Vivo", "Vendido", "Sacrificado"])
-        
         if st.form_submit_button("Registrar Animal"):
             session = get_session()
-            
             # Validaciones
-            prefix = {'Cerdo':'C','Pollo':'P','Borrego':'B'}[tipo]
             if not id_animal.startswith(prefix):
                 st.error(f"El ID debe iniciar con '{prefix}' para {tipo}.")
                 st.stop()
-            
             if session.query(Animal).filter_by(id=id_animal).first():
                 st.warning(f"El Animal con ID «{id_animal}» ya existe.")
                 st.stop()
-            
-            # Cálculos
             dias = (date.today() - fecha_nac).days
             plan = calcular_plan(tipo, dias, peso_ini)
-            
-            # Crear registro
             nuevo = Animal(
                 id=id_animal, tipo=tipo, nombre=nombre,
                 fecha_nacimiento=fecha_nac, peso_inicial=peso_ini,
                 padre=padre or None, madre=madre or None,
                 origen=origen, plan_alimentacion=plan, estado_actual=estado
             )
-            
             try:
                 session.add(nuevo)
                 session.commit()
                 st.success("Animal registrado correctamente.")
-                
-                # Generar QR
                 info = f"ID:{nuevo.id}|Tipo:{nuevo.tipo}|Nombre:{nuevo.nombre}|Nacimiento:{nuevo.fecha_nacimiento.strftime('%Y-%m-%d')}"
                 buf = generar_qr(info)
-                
                 col1, col2 = st.columns([1, 2])
                 with col1:
                     st.image(Image.open(buf), caption=f"QR para {nombre}")
@@ -214,28 +190,21 @@ def registro_animales():
                         file_name=f"qr_{nuevo.id}.png",
                         mime="image/png"
                     )
-                
             except Exception as e:
                 session.rollback()
-                st.error(f"Error al registrar animal: {str(e)}")
+                st.error(f"Error al registrar animal: {e}")
+
 
 def registrar_peso():
     st.title("⚖️ Registro de Pesos")
-    
     session = get_session()
     animales = session.query(Animal).all()
-    
     if not animales:
         st.warning("No hay animales registrados.")
         return
-    
     with st.form("form_peso"):
-        st.subheader("Nuevo Registro de Peso")
-        
         opcion = st.radio("Método de identificación", ["Escanear QR", "Seleccionar manualmente"], horizontal=True)
-        
         id_sel = None
-        
         if opcion == "Escanear QR":
             qr_file = st.camera_input("Escanea el código QR del animal")
             if qr_file:
@@ -248,223 +217,37 @@ def registrar_peso():
                         st.success(f"ID detectado: {id_sel}")
                 except:
                     st.error("Error al leer el código QR")
-        
         if not id_sel:
             id_sel = st.selectbox("Seleccionar animal", [a.id for a in animales])
-        
         peso_n = st.number_input("Peso (kg)", min_value=0.0, step=0.1)
         fecha_peso = st.date_input("Fecha de medición", value=date.today())
-        
         if st.form_submit_button("Guardar Peso"):
             ahora = datetime.combine(fecha_peso, datetime.now().time())
             medida = Peso(id=id_sel, fecha=ahora, peso=peso_n)
-            
             try:
                 session.add(medida)
                 session.commit()
                 st.success(f"Peso {peso_n} kg registrado para {id_sel}")
-                
-                # Mostrar historial
-                historial = session.query(Peso).filter(Peso.id == id_sel).order_by(Peso.fecha.desc()).limit(5).all()
+                historial = session.query(Peso).filter(Peso.id==id_sel).order_by(Peso.fecha.desc()).limit(5).all()
                 if historial:
-                    df = pd.DataFrame([(h.fecha.strftime("%Y-%m-%d"), h.peso) for h in historial], 
-                                    columns=["Fecha", "Peso"])
+                    df = pd.DataFrame([(h.fecha.strftime("%Y-%m-%d"), h.peso) for h in historial], columns=["Fecha", "Peso"])
                     st.line_chart(df.set_index("Fecha"))
-                
             except Exception as e:
                 session.rollback()
-                st.error(f"Error: {str(e)}")
+                st.error(f"Error: {e}")
+
 
 def analisis_peso():
     st.title("📊 Análisis de Pesos")
-    
     session = get_session()
     animales = session.query(Animal).all()
-    
     if not animales:
         st.warning("No hay animales registrados.")
         return
-    
     animal_id = st.selectbox("Seleccionar animal", [a.id for a in animales])
-    pesos = session.query(Peso).filter(Peso.id == animal_id).order_by(Peso.fecha).all()
-    
+    pesos = session.query(Peso).filter(Peso.id==animal_id).order_by(Peso.fecha).all()
     if not pesos:
         st.info("No hay registros de peso para este animal.")
         return
-    
-    df = pd.DataFrame([(p.fecha.strftime("%Y-%m-%d"), p.peso) for p in pesos], 
-                     columns=["Fecha", "Peso"])
-    
-    st.subheader("Evolución de peso")
-    st.line_chart(df.set_index("Fecha"))
-    
-    st.subheader("Datos detallados")
-    st.dataframe(df)
-
-def alertas_salud():
-    st.title("⚠️ Alertas de Salud")
-    
-    session = get_session()
-    animales = session.query(Animal).filter(Animal.estado_actual == "Vivo").all()
-    
-    if not animales:
-        st.info("No hay animales activos.")
-        return
-    
-    hoy = date.today()
-    
-    st.subheader("Desparasitación requerida")
-    desparasitar = []
-    for a in animales:
-        dias_vida = (hoy - a.fecha_nacimiento.date()).days
-        if dias_vida % 90 < 7 and dias_vida >= 14:
-            desparasitar.append(a)
-    
-    if desparasitar:
-        df = pd.DataFrame([(a.id, a.tipo, a.nombre) for a in desparasitar],
-                         columns=["ID", "Tipo", "Nombre"])
-        st.dataframe(df)
-    else:
-        st.success("Ningún animal requiere desparasitación esta semana")
-    
-    st.subheader("Suplementación requerida")
-    suplementos = []
-    for a in animales:
-        dias_vida = (hoy - a.fecha_nacimiento.date()).days
-        if dias_vida % 30 < 7:
-            suplementos.append(a)
-    
-    if suplementos:
-        df = pd.DataFrame([(a.id, a.tipo, a.nombre) for a in suplementos],
-                         columns=["ID", "Tipo", "Nombre"])
-        st.dataframe(df)
-    else:
-        st.success("Ningún animal requiere suplementos esta semana")
-
-def registro_tratamientos():
-    st.title("💉 Registro de Vacunas/Vitaminas")
-    
-    session = get_session()
-    animales = session.query(Animal).filter(Animal.estado_actual == "Vivo").all()
-    
-    with st.form("form_tratamiento"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            animal_id = st.selectbox("Seleccionar animal", [a.id for a in animales])
-            tratamiento_tipo = st.selectbox("Tipo de tratamiento", ["Vacuna", "Vitamina"])
-            tratamiento_nombre = st.text_input("Nombre del tratamiento")
-            fecha_aplicacion = st.date_input("Fecha de aplicación")
-            
-        with col2:
-            dosis = st.text_input("Dosis aplicada")
-            frecuencia = st.number_input("Frecuencia en días (para próxima dosis)", min_value=0)
-            observaciones = st.text_area("Observaciones")
-            
-        if st.form_submit_button("Registrar Tratamiento"):
-            nuevo_tratamiento = Tratamiento(
-                id=f"T{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                animal_id=animal_id,
-                tipo=tratamiento_tipo,
-                nombre=tratamiento_nombre,
-                fecha_aplicacion=fecha_aplicacion,
-                fecha_proxima=fecha_aplicacion + timedelta(days=frecuencia) if frecuencia > 0 else None,
-                dosis=dosis,
-                observaciones=observaciones
-            )
-            
-            try:
-                session.add(nuevo_tratamiento)
-                session.commit()
-                st.success("Tratamiento registrado exitosamente!")
-            except Exception as e:
-                session.rollback()
-                st.error(f"Error: {str(e)}")
-
-def historial_tratamientos():
-    st.title("📋 Historial de Tratamientos")
-    
-    session = get_session()
-    tratamientos = session.query(Tratamiento).all()
-    
-    if not tratamientos:
-        st.info("No hay tratamientos registrados")
-        return
-    
-    df = pd.DataFrame([(
-        t.animal_id,
-        t.tipo,
-        t.nombre,
-        t.fecha_aplicacion.strftime("%Y-%m-%d"),
-        t.fecha_proxima.strftime("%Y-%m-%d") if t.fecha_proxima else "N/A",
-        t.dosis,
-        t.observaciones
-    ) for t in tratamientos], columns=["ID Animal", "Tipo", "Nombre", "Fecha", "Próxima", "Dosis", "Observaciones"])
-    
-    st.dataframe(df, use_container_width=True)
-
-def alertas_tratamientos():
-    st.title("🔔 Alertas de Tratamientos")
-    
-    session = get_session()
-    tratamientos = session.query(Tratamiento).filter(Tratamiento.fecha_proxima != None).all()
-    
-    hoy = date.today()
-    alertas = []
-    
-    for t in tratamientos:
-        dias_restantes = (t.fecha_proxima.date() - hoy).days
-        if 0 <= dias_restantes <= 7:
-            alertas.append(t)
-    
-    if alertas:
-        st.subheader("Próximos tratamientos requeridos")
-        for tratamiento in alertas:
-            with st.expander(f"{tratamiento.nombre} - {tratamiento.animal_id}"):
-                cols = st.columns(4)
-                cols[0].write(f"**Tipo:** {tratamiento.tipo}")
-                cols[1].write(f"**Fecha última:** {tratamiento.fecha_aplicacion.strftime('%Y-%m-%d')}")
-                cols[2].write(f"**Próxima dosis:** {tratamiento.fecha_proxima.strftime('%Y-%m-%d')}")
-                cols[3].write(f"**Días restantes:** {(tratamiento.fecha_proxima.date() - hoy).days}")
-                st.write(f"**Dosis:** {tratamiento.dosis}")
-                st.write(f"**Observaciones:** {tratamiento.observaciones}")
-    else:
-        st.success("No hay tratamientos próximos en los próximos 7 días")
-
-# ---------- APLICACIÓN PRINCIPAL ----------
-def main():
-    with st.sidebar:
-        st.title("Navegación")
-        menu_option = st.radio(
-            "Menú Principal",
-            [
-                "🏠 Inicio", 
-                "📝 Registro", 
-                "⚖️ Pesos", 
-                "📊 Análisis", 
-                "💉 Tratamientos",
-                "⚠️ Alertas"
-            ]
-        )
-    
-    if menu_option == "🏠 Inicio":
-        pagina_inicio()
-    elif menu_option == "📝 Registro":
-        registro_animales()
-    elif menu_option == "⚖️ Pesos":
-        registrar_peso()
-    elif menu_option == "📊 Análisis":
-        analisis_peso()
-    elif menu_option == "💉 Tratamientos":
-        submenu = st.selectbox("Seleccionar opción", ["Registrar", "Historial", "Alertas"])
-        if submenu == "Registrar":
-            registro_tratamientos()
-        elif submenu == "Historial":
-            historial_tratamientos()
-        elif submenu == "Alertas":
-            alertas_tratamientos()
-    elif menu_option == "⚠️ Alertas":
-        alertas_salud()
-
-if __name__ == "__main__":
-    main()
+    df = pd.DataFrame([(p.fecha.strftime("%Y-%m-
+... (truncated for brevity) ...
