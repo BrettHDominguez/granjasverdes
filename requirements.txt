@@ -1,0 +1,5 @@
+streamlit
+SQLAlchemy
+qrcode
+Pillow
+pandas
